@@ -924,8 +924,7 @@ class ServerArgs:
         )
         parser.add_argument(
             "--use-multilevel-backend",
-            type=bool,
-            default=ServerArgs.use_multilevel_backend,
+            action="store_true",
             help="If using multi-level backend as kv cache.",
         )
 
