@@ -125,13 +125,13 @@ class DiskKVCache:
             v_cache = self.v_buffers[layer_id]
             return k_cache, v_cache
 
-    def get_kv_buffer_with_metrics(self, layer_id: int, get_option_totel_num: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def get_kv_buffer_with_metrics(self, layer_id: int, get_option_total_num: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Get KV buffers for specified layer with lock protection
 
         Args:
             layer_id: Layer index to retrieve
-            get_option_totel_num: The total number of get options
+            get_option_total_num: The total number of get options
 
         Returns:
             Tuple of (key_buffer, value_buffer) tensors

@@ -496,7 +496,7 @@ class MultiLevelKVCache(KVCache):
         self.prefetch_queue = set()
         self.prefetch_lock = RLock()
         self.upload_lock = RLock()
-        self.get_option_totel_num = 0
+        self.get_option_total_num = 0
 
         # Resource cleanup
         atexit.register(self.cleanup)
@@ -506,7 +506,7 @@ class MultiLevelKVCache(KVCache):
         Get KV buffers with automatic multi-level fetching
         Priority: GPU → Disk (with async prefetch)
         """
-        self.get_option_totel_num += 1
+        self.get_option_total_num += 1
         try:
             # Try GPU cache first
             k, v = self.gpu_cache.get_kv_buffer(layer_id)
@@ -515,7 +515,7 @@ class MultiLevelKVCache(KVCache):
         except Exception:
             pass
         # Fall back to disk
-        k_disk, v_disk = self.disk_cache.get_kv_buffer_with_metrics(layer_id, self.get_option_totel_num)
+        k_disk, v_disk = self.disk_cache.get_kv_buffer_with_metrics(layer_id, self.get_option_total_num)
 
         # Async upload to GPU
         self._async_upload_to_gpu(layer_id, k_disk, v_disk)
