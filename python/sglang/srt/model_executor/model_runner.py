@@ -123,6 +123,7 @@ from sglang.srt.utils import (
 )
 
 from sglang.srt.mem_cache.memory_pool import MultiLevelKVCache
+from sglang.srt.metrics.collector import DiskKVCacheMetrics
 
 _is_hip = is_hip()
 _is_npu = is_npu()
@@ -1266,6 +1267,11 @@ class ModelRunner:
                 )
         if self.server_args.use_multilevel_backend:
             logger.info("using MultiLevelKVCache")
+            if self.server_args.enable_metrics:
+                metrics_labels = {"model": self.server_args.model_path, "cache_type": "disk"}
+                metrics = DiskKVCacheMetrics(metrics_labels)
+            else:
+                metrics = None
             self.token_to_kv_pool = MultiLevelKVCache(
                 self.max_total_num_tokens,
                 page_size=self.page_size,
@@ -1278,7 +1284,8 @@ class ModelRunner:
                 device=self.device,
                 enable_memory_saver=self.server_args.enable_memory_saver,
                 gpu_cache=self.token_to_kv_pool,
-                disk_cache_max_capacity_gb = self.server_args.disk_cache_max_capacity_gb,
+                disk_cache_max_capacity_gb=self.server_args.disk_cache_max_capacity_gb,
+                disk_cache_metrics=metrics,
                 start_layer=self.start_layer,
                 end_layer=self.end_layer,
             )
@@ -1322,7 +1329,7 @@ class ModelRunner:
             logger.info(
                 f"Memory pool end. "
                 f"avail mem={get_available_gpu_memory(self.device, self.gpu_id):.2f} GB"
-                f"avail disk={disk_cache_max_capacity_gb} GB"
+                f"avail disk={self.server_args.disk_cache_max_capacity_gb} GB"
             )
         else:
             logger.info(

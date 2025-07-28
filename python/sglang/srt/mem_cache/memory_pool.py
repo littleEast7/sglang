@@ -45,7 +45,7 @@ from sgl_kernel.kvcacheio import transfer_kv_per_layer, transfer_kv_per_layer_ml
 from sglang.srt.constants import GPU_MEMORY_TYPE_KV_CACHE
 from sglang.srt.layers.radix_attention import RadixAttention
 from sglang.srt.utils import get_bool_env_var, is_cuda, next_power_of_2
-
+from sglang.srt.metrics.collector import DiskKVCacheMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -425,29 +425,6 @@ class MHATokenToKVPool(KVCache):
             next_power_of_2(len(tgt_loc)),
         )
 
-# TODO(litteEast7) to complete the metric of MultiLevelKVCache
-class SafeStats:
-    """Thread-safe statistics collector"""
-    def __init__(self):
-        self._stats = {
-            'disk_hits': 0,
-            'gpu_hits': 0,
-            'prefetches': 0,
-            'errors': 0
-        }
-        self._lock = RLock()
-
-    def increment(self, key: str):
-        """Atomically increment counter"""
-        with self._lock:
-            if key in self._stats:
-                self._stats[key] += 1
-
-    def get_stats(self) -> Dict:
-        """Get current statistics snapshot"""
-        with self._lock:
-            return self._stats.copy()
-
 
 class MultiLevelKVCache(KVCache):
     """
@@ -468,6 +445,7 @@ class MultiLevelKVCache(KVCache):
                  prefetch_workers: int = 4,
                  gpu_cache: Optional[KVCache] = None,
                  disk_cache_max_capacity_gb: int = 10,
+                 disk_cache_metrics: DiskKVCacheMetrics = None,
                  start_layer: Optional[int] = None,
                  end_layer: Optional[int] = None):
         """
@@ -485,6 +463,8 @@ class MultiLevelKVCache(KVCache):
             cache_dir: Directory for disk cache files
             prefetch_workers: Number of parallel prefetch threads
             gpu_cache: KVCache that previously used
+            disk_cache_max_capacity_gb: The max capacity of disk cache
+            disk_cache_metrics: Metrics for disk cache
             start_layer: First layer index to cache
             end_layer: Last layer index to cache
         """
@@ -499,7 +479,7 @@ class MultiLevelKVCache(KVCache):
         # Initialize components
         self.disk_cache = DiskKVCache(
             size, page_size, dtype, head_num, head_dim, layer_num,
-            disk_cache_max_capacity_gb, cache_dir
+            disk_cache_max_capacity_gb, cache_dir, disk_cache_metrics
         )
 
         # Initialize GPU cache (with built-in CPU caching)
@@ -516,7 +496,7 @@ class MultiLevelKVCache(KVCache):
         self.prefetch_queue = set()
         self.prefetch_lock = RLock()
         self.upload_lock = RLock()
-        self.stats = SafeStats()
+        self.get_option_totel_num = 0
 
         # Resource cleanup
         atexit.register(self.cleanup)
@@ -526,21 +506,20 @@ class MultiLevelKVCache(KVCache):
         Get KV buffers with automatic multi-level fetching
         Priority: GPU → Disk (with async prefetch)
         """
+        self.get_option_totel_num += 1
         try:
             # Try GPU cache first
             k, v = self.gpu_cache.get_kv_buffer(layer_id)
-            self.stats.increment('gpu_hits')
             self._async_prefetch(layer_id + 1)  # Prefetch next layer
             return k, v
         except Exception:
             pass
-
         # Fall back to disk
-        k_disk, v_disk = self.disk_cache.get_kv_buffer(layer_id)
-        self.stats.increment('disk_hits')
+        k_disk, v_disk = self.disk_cache.get_kv_buffer_with_metrics(layer_id, self.get_option_totel_num)
 
         # Async upload to GPU
         self._async_upload_to_gpu(layer_id, k_disk, v_disk)
+        self.disk_cache.update_metrics()
         return k_disk, v_disk
 
     def set_kv_buffer(self,
@@ -567,10 +546,10 @@ class MultiLevelKVCache(KVCache):
             try:
                 self.disk_cache.set_kv_buffer(layer_id, loc, cache_k, cache_v)
             except Exception as e:
-                self.stats.increment('errors')
                 print(f"Disk update failed layer {layer_id}: {str(e)}")
 
         self.prefetch_executor.submit(update_disk)
+        self.disk_cache.update_metrics()
 
     def _async_upload_to_gpu(self,
                              layer_id: int,
@@ -631,7 +610,7 @@ class MultiLevelKVCache(KVCache):
             self.prefetch_executor.submit(task)
         else:
             self.prefetch_executor.submit(task)
-
+        self.disk_cache.update_metrics()
         return task.event
 
     def _async_prefetch(self, layer_id: int):
@@ -643,7 +622,6 @@ class MultiLevelKVCache(KVCache):
             if layer_id in self.prefetch_queue:
                 return
             self.prefetch_queue.add(layer_id)
-            self.stats.increment('prefetches')
 
         def prefetch_task():
             try:
@@ -657,6 +635,7 @@ class MultiLevelKVCache(KVCache):
                     self.prefetch_queue.discard(layer_id)
 
         self.prefetch_executor.submit(prefetch_task)
+        self.disk_cache.update_metrics()
 
     def backup_to_host_all_layer(self) -> int:
         """
@@ -674,9 +653,7 @@ class MultiLevelKVCache(KVCache):
             for future in futures:
                 if future.exception() is None and future.result():
                     success_count += 1
-                elif future.exception():
-                    self.stats.increment('errors')
-
+        self.disk_cache.update_metrics()
         return success_count
 
     def load_from_host_per_layer(self, layer_id: int) -> bool:
@@ -708,10 +685,10 @@ class MultiLevelKVCache(KVCache):
 
             # Optional: wait for completion
             upload_event.wait()
+            self.disk_cache.update_metrics()
             return True
 
         except Exception as e:
-            self.stats.increment('errors')
             print(f"Failed to load layer {layer_id}: {str(e)}")
             return False
     def _backup_single_layer(self, layer_id: int) -> bool:
@@ -740,7 +717,7 @@ class MultiLevelKVCache(KVCache):
         """Clean up all resources safely"""
         self.prefetch_executor.shutdown(wait=True)
         self.disk_cache.cleanup()
-        print("Cache statistics:", self.stats.get_stats())
+        self.disk_cache.update_metrics()
 
     # Compatibility methods
     def get_key_buffer(self, layer_id: int) -> torch.Tensor:
