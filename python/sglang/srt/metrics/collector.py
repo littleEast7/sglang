@@ -148,6 +148,66 @@ class SchedulerStats:
     total_retracted_reqs: int = 0
 
 
+class DiskKVCacheMetrics:
+    """Metrics collector for monitoring DiskKVCache performance and usage"""
+    def __init__(self, labels: Dict[str, str]):
+        self.labels = labels
+        from prometheus_client import Counter, Gauge, Histogram
+        # Cache utilization metrics
+        self.cache_usage_bytes = Gauge(
+            name="sglang:disk_kv_cache_usage_bytes",
+            documentation="Current disk KV cache usage in bytes",
+            labelnames=labels.keys(),
+        )
+
+        self.cache_capacity_bytes = Gauge(
+            name="sglang:disk_kv_cache_capacity_bytes",
+            documentation="Total disk KV cache capacity in bytes",
+            labelnames=labels.keys(),
+        )
+
+        # Cache performance metrics
+        self.cache_hit_rate = Gauge(
+            name="sglang:disk_kv_cache_hit_rate",
+            documentation="Current disk KV cache hit rate (0-1)",
+            labelnames=labels.keys(),
+        )
+
+        # I/O speed metrics (bytes/second)
+        self.read_speed = Histogram(
+            name="sglang:disk_kv_cache_read_speed_bytes_per_second",
+            documentation="Disk KV cache read speed in bytes/second",
+            labelnames=labels.keys(),
+            buckets=[1e6, 5e6, 1e7, 5e7, 1e8, 5e8, 1e9],  # From 1MB/s to 1GB/s
+        )
+
+        self.write_speed = Histogram(
+            name="sglang:disk_kv_cache_write_speed_bytes_per_second",
+            documentation="Disk KV cache write speed in bytes/second",
+            labelnames=labels.keys(),
+            buckets=[1e6, 5e6, 1e7, 5e7, 1e8, 5e8, 1e9],
+        )
+
+        # Operations metrics
+        self.read_ops = Counter(
+            name="sglang:disk_kv_cache_read_ops_total",
+            documentation="Total number of disk KV cache read operations",
+            labelnames=labels.keys(),
+        )
+
+        self.write_ops = Counter(
+            name="sglang:disk_kv_cache_write_ops_total",
+            documentation="Total number of disk KV cache write operations",
+            labelnames=labels.keys(),
+        )
+
+        # Per-layer utilization metrics
+        self.layer_usage = Gauge(
+            name="sglang:disk_kv_cache_layer_usage_bytes",
+            documentation="Disk KV cache usage per layer in bytes",
+            labelnames=["layer_id"] + list(labels.keys()),
+        )
+
 class SchedulerMetricsCollector:
 
     def __init__(self, labels: Dict[str, str]) -> None:

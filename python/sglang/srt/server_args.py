@@ -87,6 +87,8 @@ class ServerArgs:
     hybrid_kvcache_ratio: Optional[float] = None
     swa_full_tokens_ratio: float = 0.8
     disable_hybrid_swa_memory: bool = False
+    use_multilevel_backend: bool = False
+    disk_cache_max_capacity_gb: int = 0
 
     # Runtime options
     device: Optional[str] = None
@@ -920,6 +922,17 @@ class ServerArgs:
             "--disable-hybrid-swa-memory",
             action="store_true",
             help="Disable the hybrid SWA memory.",
+        )
+        parser.add_argument(
+            "--use-multilevel-backend",
+            action="store_true",
+            help="If using multi-level backend as kv cache.",
+        )
+        parser.add_argument(
+            "--disk-cache-max-capacity-gb",
+            type=int,
+            default=ServerArgs.disk_cache_max_capacity_gb,
+            help="The maximum capacity limit of disk kv cache.",
         )
 
         # Runtime options
