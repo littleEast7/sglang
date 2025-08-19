@@ -205,6 +205,7 @@ class TransferBackend(Enum):
     MOONCAKE = "mooncake"
     NIXL = "nixl"
     ASCEND = "ascend"
+    ALLUXIO = "alluxio"
     FAKE = "fake"
 
 
@@ -268,6 +269,23 @@ def get_kv_class(transfer_backend: TransferBackend, class_type: KVClassType):
             KVClassType.SENDER: NixlKVSender,
             KVClassType.RECEIVER: (NixlKVReceiver),
             KVClassType.BOOTSTRAP_SERVER: NixlKVBootstrapServer,
+        }
+        return class_mapping.get(class_type)
+    elif transfer_backend == TransferBackend.ALLUXIO:
+        from sglang.srt.disaggregation.base import KVArgs
+        from sglang.srt.disaggregation.alluxio import (
+            AlluxioKVBootstrapServer,
+            AlluxioKVManager,
+            AlluxioKVReceiver,
+            AlluxioKVSender,
+        )
+
+        class_mapping = {
+            KVClassType.KVARGS: KVArgs,
+            KVClassType.MANAGER: AlluxioKVManager,
+            KVClassType.SENDER: AlluxioKVSender,
+            KVClassType.RECEIVER: (AlluxioKVReceiver),
+            KVClassType.BOOTSTRAP_SERVER: AlluxioKVBootstrapServer,
         }
         return class_mapping.get(class_type)
     elif transfer_backend == TransferBackend.FAKE:
